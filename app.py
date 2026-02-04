@@ -444,7 +444,7 @@ with tab6:
                     del st.session_state['auth_preview']
                 except Exception as e:
                     st.error(f"❌ Erro ao enviar: {e}")
-                    
+
 # --- TAB 7: NOTIFICAÇÃO ---
 with tab7:
     st.header("Notificação por Email")
@@ -452,7 +452,7 @@ with tab7:
     prazo_txt = st.session_state.data_store.get("final_deadline", "DD/MM/AAAA")
     
     default_body = f"""Bom dia, boa tarde e boa noite CONSELT!
-Seguem os detalhes da ATA recém enviada.
+[Mensagem personalizada]. Qualquer problema, chama JF! 🔥🔥
 
 [AQUI ENTRA A GIF]
 
@@ -461,7 +461,7 @@ A assinatura é obrigatória e tem como prazo até o dia {prazo_txt}."""
 
     with st.form("email_form"):
         # Correção de Layout: Input full width fora de colunas apertadas
-        email_to = st.text_input("Para (separe por vírgula):", value="arielsilva@conselt.com.br")
+        email_to = st.text_input("Para (separe por vírgula):", value="conselt@conselt.com.br, trainees@conselt.com.br")
         subject = st.text_input("Assunto:", value="Assinatura da ATA - Reunião Geral")
         body_content = st.text_area("Corpo do Email", value=default_body, height=200)
         
