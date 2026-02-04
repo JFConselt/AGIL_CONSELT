@@ -10,12 +10,16 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 def calculate_deadline():
-    """Calcula data de bloqueio (deadline) em ISO 8601."""
+    """
+    Calcula data de bloqueio (deadline) +2 dias úteis.
+    Retorna em UTC (Z) sem microssegundos para garantir validação da API.
+    """
     try:
         tz = pytz.timezone(config.TIMEZONE)
         now = datetime.now(tz)
     except:
-        now = datetime.now()
+        # Fallback seguro para UTC se o timezone falhar
+        now = datetime.now(pytz.utc)
     
     # Tenta carregar feriados
     try:
@@ -26,14 +30,20 @@ def calculate_deadline():
     days_added = 0
     current_date = now
     
+    # Lógica de Dias Úteis
     while days_added < 2:
         current_date += timedelta(days=1)
         if current_date.weekday() < 5 and current_date not in br_holidays:
             days_added += 1
             
-    deadline = current_date.replace(hour=23, minute=59, second=59)
-    # O método isoformat() é mais seguro que strftime para APIs
-    return deadline.isoformat()
+    # Define horário final do dia (Brasília) e remove microssegundos (CRÍTICO PARA API)
+    deadline_local = current_date.replace(hour=23, minute=59, second=59, microsecond=0)
+    
+    # Converte para UTC para envio universal
+    deadline_utc = deadline_local.astimezone(pytz.utc)
+    
+    # Retorna formato estrito: YYYY-MM-DDTHH:MM:SSZ
+    return deadline_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def get_signers_emails(names_text, emails_db_path='email.json'):
     try:
@@ -70,18 +80,19 @@ def get_signers_emails(names_text, emails_db_path='email.json'):
 
 def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     """
-    Envia para API Authentique seguindo o padrão Multipart Form Data da documentação.
+    Envia para API Authentique (Autentique V2) via Multipart Upload.
     """
     
+    # URL corrigida conforme seu sucesso de conexão recente (autentique vs authentique)
     url = "https://api.autentique.com.br/v2/graphql"
     
     if "AUTHENTIQUE_TOKEN" not in st.secrets:
         raise Exception("Token da Authentique não configurado no secrets.")
         
     token = st.secrets["AUTHENTIQUE_TOKEN"]
-    deadline = calculate_deadline()
+    deadline = calculate_deadline() # Agora retorna formato UTC limpo (ex: 2026-02-10T02:59:59Z)
     
-    # --- CORREÇÃO: Mudança de 'attributes' para 'document' (Exigência da API) ---
+    # Query ajustada para usar 'document' (Correção aplicada anteriormente)
     query = """
     mutation CreateDocumentMutation($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
         createDocument(document: $document, signers: $signers, file: $file) {
@@ -92,7 +103,6 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     }
     """
     
-    # --- CORREÇÃO: Estrutura da variável ajustada para 'document' ---
     variables = {
         "document": {
             "name": doc_name,
@@ -105,7 +115,6 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     operations = json.dumps({"query": query, "variables": variables})
     map_data = json.dumps({"0": ["variables.file"]})
     
-    # Garante ponteiro no início
     file_obj.seek(0)
     
     files = {
@@ -116,7 +125,6 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Configuração de Retry para robustez de rede
     session = requests.Session()
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(max_retries=retries))
@@ -128,13 +136,12 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
             raise Exception(f"Erro API ({response.status_code}): {response.text}")
             
         data = response.json()
-        # Tratamento para erro lógico do GraphQL (ex: argumentos errados)
         if "errors" in data:
             raise Exception(f"Erro Retornado pela Authentique: {json.dumps(data['errors'])}")
             
         return data["data"]["createDocument"]["id"]
         
     except requests.exceptions.ConnectionError:
-        raise Exception("Erro de Conexão: Falha ao resolver DNS ou conectar à Authentique. Verifique sua internet.")
+        raise Exception("Erro de Conexão: Falha ao conectar à Autentique. Verifique a URL e sua internet.")
     except Exception as e:
         raise Exception(f"Falha no envio: {str(e)}")
