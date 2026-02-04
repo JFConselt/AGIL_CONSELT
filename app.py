@@ -387,28 +387,25 @@ with tab5:
 with tab6:
     st.header("Assinatura Oficial")
     
-    # CORREÇÃO: Verifica na raiz do session_state, onde a Aba 5 salva o arquivo
+    # Verifica arquivo
     file_blob = st.session_state.get('final_file_blob')
-    
     if not file_blob:
         st.warning("⚠️ Gere ou suba o documento na aba anterior (Revisão e Conclusão).")
         st.stop()
         
-    # Garante que temos a lista de presença
+    # Verifica lista
     raw_att = st.session_state.data_store.get("attendance_raw", "")
     if not raw_att:
-        st.error("⚠️ Lista de presença vazia! Volte na Aba 1 e salve os metadados.")
+        st.error("⚠️ Lista de presença vazia! Volte na Aba 1.")
         st.stop()
 
-    # Cálculo de Prazo
-    deadline_iso = authentique_utils.calculate_deadline()
-    deadline_str = datetime.strptime(deadline_iso, '%Y-%m-%dT%H:%M:%S%z').strftime("%d/%m/%Y às %H:%M")
-    st.session_state.data_store["final_deadline"] = deadline_str # Salva para usar no email depois
-
+    # Info do Documento
+    deadline_str = st.session_state.data_store.get("final_deadline", "Calculando...")
     filename = st.session_state.get('final_filename', 'ATA.docx')
-    st.info(f"📂 Arquivo pronto: **{filename}**\n\n📅 Prazo de Assinatura: **{deadline_str}**")
+    
+    st.info(f"📂 Arquivo: **{filename}**\n\n📅 Prazo: **{deadline_str}**")
 
-    # 1. Análise
+    # 1. Conferência
     st.markdown("### 1. Conferência de Signatários")
     if st.button("🔍 Analisar E-mails"):
         signers, missing, display_map = authentique_utils.get_signers_emails(raw_att)
@@ -418,32 +415,29 @@ with tab6:
             "map": display_map
         }
 
-    # 2. Preview e Envio
+    # 2. Envio
     if 'auth_preview' in st.session_state:
         prev = st.session_state['auth_preview']
         
-        # Tabela de conferência
-        df = pd.DataFrame(prev['map'], columns=["Nome na Lista", "Email Encontrado", "Status"])
+        df = pd.DataFrame(prev['map'], columns=["Nome", "Email", "Status"])
         st.table(df)
         
         if prev['missing']:
-            st.warning(f"⚠️ {len(prev['missing'])} pessoas não possuem e-mail cadastrado e não receberão o documento.")
+            st.warning(f"⚠️ {len(prev['missing'])} pessoas sem e-mail não receberão o convite.")
         
         st.markdown("### 2. Disparo")
-        # Botão de Envio
         if st.button("✅ Confirmar e Enviar para Authentique", type="primary"):
-            # Prepara o arquivo em memória
             file_mem = io.BytesIO(file_blob)
             file_mem.name = filename
             
             with st.spinner("Conectando à API Authentique..."):
                 try:
                     doc_id = authentique_utils.send_to_authentique(file_mem, prev['signers'], doc_name=filename)
-                    st.success(f"🎉 Enviado com sucesso! ID do Documento: {doc_id}")
-                    # Limpa o preview para evitar reenvio duplo acidental
+                    st.success(f"🎉 Documento enviado! ID: {doc_id}")
+                    # Limpa preview para evitar reenvio
                     del st.session_state['auth_preview']
                 except Exception as e:
-                    st.error(f"❌ Erro ao enviar: {e}")
+                    st.error(f"{e}")
 
 # --- TAB 7: NOTIFICAÇÃO ---
 with tab7:
