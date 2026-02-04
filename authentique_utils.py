@@ -74,7 +74,7 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     Corrige o argumento da mutation para 'attributes'.
     """
     
-    url = "https://api.authentique.com.br/v2/graphql"
+    url = "https://api.authentique.com.br"
     
     if "AUTHENTIQUE_TOKEN" not in st.secrets:
         raise Exception("Token da Authentique não configurado no secrets.")
