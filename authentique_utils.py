@@ -70,7 +70,8 @@ def get_signers_emails(names_text, emails_db_path='email.json'):
 
 def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     """
-    Envia para API Authentique seguindo o padrão Multipart Form Data da documentação.
+    Envia para API Authentique seguindo o padrão Multipart Form Data.
+    Corrige o argumento da mutation para 'attributes'.
     """
     
     url = "https://api.authentique.com.br/v2/graphql"
@@ -81,10 +82,11 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     token = st.secrets["AUTHENTIQUE_TOKEN"]
     deadline = calculate_deadline()
     
-    # --- CORREÇÃO AQUI: Mudança de 'attributes' para 'document' conforme roteiro ---
+    # --- CORREÇÃO: O padrão da API é 'attributes' ---
+    # Se a sua documentação específica exigir 'document', reverta essa mudança.
     query = """
-    mutation CreateDocumentMutation($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
-        createDocument(document: $document, signers: $signers, file: $file) {
+    mutation CreateDocumentMutation($attributes: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
+        createDocument(attributes: $attributes, signers: $signers, file: $file) {
             id
             name
             deadline_at
@@ -92,9 +94,9 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     }
     """
     
-    # --- CORREÇÃO AQUI: Estrutura da variável ajustada ---
+    # As variáveis devem refletir os nomes usados na query acima ($attributes)
     variables = {
-        "document": {
+        "attributes": {
             "name": doc_name,
             "deadline_at": deadline
         },
@@ -102,9 +104,11 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
         "file": None
     }
     
+    # Preparação do Multipart (Padrão GraphQL)
     operations = json.dumps({"query": query, "variables": variables})
     map_data = json.dumps({"0": ["variables.file"]})
     
+    # Importante: Garantir que o ponteiro do arquivo está no início
     file_obj.seek(0)
     
     files = {
@@ -113,26 +117,38 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
         "0": (doc_name, file_obj, "application/pdf")
     }
     
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {
+        "Authorization": f"Bearer {token}"
+        # Não adicione 'Content-Type': 'multipart/form-data' aqui manualmente! 
+        # A lib requests faz isso automaticamente com o boundary correto.
+    }
     
-    # Configuração de Retry para evitar erro de DNS/Conexão (visto na sua print)
     session = requests.Session()
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(max_retries=retries))
 
     try:
-        response = session.post(url, headers=headers, files=files, timeout=30)
+        response = session.post(url, headers=headers, files=files, timeout=60)
         
+        # Debug: Se der erro 400, imprime o que a API respondeu
         if response.status_code != 200:
-            raise Exception(f"Erro API ({response.status_code}): {response.text}")
+            error_msg = response.text
+            try:
+                error_json = response.json()
+                if "errors" in error_json:
+                    error_msg = json.dumps(error_json["errors"], indent=2, ensure_ascii=False)
+            except:
+                pass
+            raise Exception(f"Erro API ({response.status_code}): {error_msg}")
             
         data = response.json()
+        
         if "errors" in data:
-            raise Exception(f"Erro Retornado pela Authentique: {json.dumps(data['errors'])}")
+            raise Exception(f"Erro Retornado pela Authentique: {json.dumps(data['errors'], indent=2, ensure_ascii=False)}")
             
         return data["data"]["createDocument"]["id"]
         
     except requests.exceptions.ConnectionError:
-        raise Exception("Erro de Conexão: Falha ao resolver DNS ou conectar à Authentique. Verifique sua internet.")
+        raise Exception("Erro de Conexão: Falha ao resolver DNS ou conectar à Authentique.")
     except Exception as e:
         raise Exception(f"Falha no envio: {str(e)}")
