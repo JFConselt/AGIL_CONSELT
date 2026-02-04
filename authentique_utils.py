@@ -74,7 +74,7 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     Corrige o argumento da mutation para 'attributes'.
     """
     
-    url = "https://api.authentique.com.br"
+    url = "https://api.autentique.com.br/v2/graphql"
     
     if "AUTHENTIQUE_TOKEN" not in st.secrets:
         raise Exception("Token da Authentique não configurado no secrets.")
@@ -82,8 +82,6 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     token = st.secrets["AUTHENTIQUE_TOKEN"]
     deadline = calculate_deadline()
     
-    # --- CORREÇÃO: O padrão da API é 'attributes' ---
-    # Se a sua documentação específica exigir 'document', reverta essa mudança.
     query = """
     mutation CreateDocumentMutation($attributes: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
         createDocument(attributes: $attributes, signers: $signers, file: $file) {
