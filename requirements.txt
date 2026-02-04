@@ -1,0 +1,8 @@
+streamlit
+google-genai
+docxtpl
+pdfplumber
+requests
+pytz
+holidays
+typing_extensions
