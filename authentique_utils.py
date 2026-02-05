@@ -12,17 +12,14 @@ from urllib3.util.retry import Retry
 def calculate_deadline():
     """
     Calcula data de bloqueio (deadline) +2 dias úteis.
-    Retorna em formato ISO 8601 compatível (+00:00).
+    Retorna OBRIGATORIAMENTE em UTC com sufixo 'Z' (ex: 2026-02-10T02:59:59Z).
     """
-    # 1. Define Fuso Horário Local e UTC
+    # 1. Define Fuso Horário Local (Brasília)
     try:
         tz_local = pytz.timezone(config.TIMEZONE)
     except:
         tz_local = pytz.timezone('America/Sao_Paulo')
     
-    tz_utc = pytz.utc
-    
-    # Usa data atual no fuso local
     now = datetime.now(tz_local)
     
     # 2. Carrega feriados
@@ -37,28 +34,22 @@ def calculate_deadline():
     # 3. Lógica de Dias Úteis
     while days_added < 2:
         current_date += timedelta(days=1)
-        # Verifica se é sábado(5) ou domingo(6)
-        if current_date.weekday() >= 5:
-            continue
+        
+        is_weekend = current_date.weekday() >= 5
+        # Conversão segura para date() para comparação
+        is_holiday = current_date.date() in br_holidays if br_holidays else False
+        
+        if not is_weekend and not is_holiday:
+            days_added += 1
             
-        # Verifica feriado
-        if current_date.date() in br_holidays:
-            continue
-            
-        days_added += 1
-            
-    # 4. Define horário final do dia local (23:59:59)
-    # AVISO: Com pytz, evitar .replace() direto se possível, mas se usar, normalizar.
-    # Criamos um datetime "naive" primeiro para setar a hora, depois localizamos.
-    naive_deadline = current_date.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=None)
-    deadline_local = tz_local.localize(naive_deadline)
+    # 4. Define horário final do dia local (23:59:59 em Brasília)
+    deadline_local = current_date.replace(hour=23, minute=59, second=59, microsecond=0)
     
-    # 5. Converte para UTC
-    deadline_utc = deadline_local.astimezone(tz_utc)
+    # 5. CONVERTE PARA UTC (Fundamental para a API)
+    deadline_utc = deadline_local.astimezone(pytz.utc)
     
-    # 6. Retorna formato ISO Padrão (Ex: 2026-02-11T02:59:59+00:00)
-    # Isso substitui o 'Z' manual pelo offset '+00:00' que é mais aceito.
-    return deadline_utc.isoformat()
+    # 6. Formatação manual estrita com 'Z' (Padrão GraphQL estrito)
+    return deadline_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def get_signers_emails(names_text, emails_db_path='email.json'):
     try:
@@ -97,7 +88,6 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     """
     Envia para API Authentique V2.
     """
-    # URL da API V2
     url = "https://api.autentique.com.br/v2/graphql"
     
     if "AUTHENTIQUE_TOKEN" not in st.secrets:
@@ -106,7 +96,7 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     token = st.secrets["AUTHENTIQUE_TOKEN"]
     deadline = calculate_deadline()
     
-    # Query GraphQL (Argumento 'document' é o correto)
+    # Query GraphQL
     query = """
     mutation CreateDocumentMutation($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
         createDocument(document: $document, signers: $signers, file: $file) {
@@ -143,23 +133,17 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(max_retries=retries))
 
-    try:
-        response = session.post(url, headers=headers, files=files, timeout=60)
+    # Execução SEM tratamento de exceção customizado (Raw Error)
+    response = session.post(url, headers=headers, files=files, timeout=60)
+    
+    if response.status_code != 200:
+        # Retorna o erro HTML/Texto cru do servidor
+        raise Exception(f"HTTP Error {response.status_code}: {response.text}")
         
-        if response.status_code != 200:
-            raise Exception(f"Erro API ({response.status_code}): {response.text}")
-            
-        data = response.json()
+    data = response.json()
+    
+    if "errors" in data:
+        # Retorna o JSON de erro cru da API
+        raise Exception(json.dumps(data['errors'], indent=2))
         
-        if "errors" in data:
-            errors_str = json.dumps(data['errors'])
-            if "invalid_date" in errors_str:
-                raise Exception(f"Formato de Data Rejeitado. Enviado: '{deadline}'. Esperado: UTC com Z.")
-            raise Exception(f"Erro Authentique: {errors_str}")
-            
-        return data["data"]["createDocument"]["id"]
-        
-    except requests.exceptions.ConnectionError:
-        raise Exception("Erro de Conexão: Falha ao conectar à Autentique.")
-    except Exception as e:
-        raise Exception(f"Falha no envio: {str(e)}")
+    return data["data"]["createDocument"]["id"]
