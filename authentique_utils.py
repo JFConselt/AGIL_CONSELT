@@ -12,7 +12,7 @@ from urllib3.util.retry import Retry
 def calculate_deadline():
     """
     Calcula data de bloqueio (deadline) +2 dias úteis.
-    Retorna em formato ISO 8601 com timezone UTC (+00:00).
+    Retorna em UTC com sufixo 'Z' (Exigência da API).
     """
     # 1. Define Fuso Horário Local e UTC
     try:
@@ -37,6 +37,7 @@ def calculate_deadline():
     # 3. Lógica de Dias Úteis
     while days_added < 2:
         current_date += timedelta(days=1)
+        
         # Verifica se é sábado(5) ou domingo(6)
         if current_date.weekday() >= 5:
             continue
@@ -48,15 +49,16 @@ def calculate_deadline():
         days_added += 1
             
     # 4. Define horário final do dia local (23:59:59)
-    # Normalização segura para evitar problemas de timezone
+    # Remove timezone info para poder localizar corretamente depois
     naive_deadline = current_date.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=None)
     deadline_local = tz_local.localize(naive_deadline)
     
     # 5. Converte para UTC
     deadline_utc = deadline_local.astimezone(tz_utc)
     
-    # 6. Retorna formato ISO Padrão (Ex: 2026-02-11T02:59:59+00:00)
-    return deadline_utc.isoformat()
+    # 6. Formatação ESTRITA com 'Z' (Correção do Bug +00:00)
+    # O Python isoformat() gera +00:00, mas a API quer Z.
+    return deadline_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def get_signers_emails(names_text, emails_db_path='email.json'):
     try:
@@ -93,7 +95,7 @@ def get_signers_emails(names_text, emails_db_path='email.json'):
 
 def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     """
-    Envia para API Authentique V2.
+    Envia para API Authentique V2 (Autentique).
     """
     url = "https://api.autentique.com.br/v2/graphql"
     
@@ -103,13 +105,9 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     token = st.secrets["AUTHENTIQUE_TOKEN"]
     deadline = calculate_deadline()
     
-    # --- DEBUGGER PARA VISUALIZAR A DATA ---
-    # Isso vai aparecer no seu terminal (console)
-    print(f"\n[DEBUG] Deadline Gerado: '{deadline}' (Tipo: {type(deadline)})")
-    
-    # Isso vai aparecer na tela do Streamlit em Amarelo para você ver na hora
-    st.warning(f"🛠️ DEBUG - Data enviada para API: {deadline}")
-    # ---------------------------------------
+    # Debug visual para garantir que o formato está correto (agora com Z)
+    st.toast(f"📅 Data limite gerada: {deadline}")
+    print(f"DEBUG DATA: {deadline}")
     
     # Query GraphQL
     query = """
@@ -148,7 +146,6 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(max_retries=retries))
 
-    # Execução sem tratamento para ver o erro cru
     response = session.post(url, headers=headers, files=files, timeout=60)
     
     if response.status_code != 200:
@@ -157,7 +154,7 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     data = response.json()
     
     if "errors" in data:
-        # Retorna o JSON de erro cru da API
+        # Retorna o erro original para diagnóstico
         raise Exception(json.dumps(data['errors'], indent=2))
         
     return data["data"]["createDocument"]["id"]
