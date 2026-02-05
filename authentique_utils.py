@@ -12,15 +12,13 @@ from urllib3.util.retry import Retry
 def calculate_deadline():
     """
     Calcula data de bloqueio (deadline) +2 dias úteis.
-    Retorna em UTC com sufixo 'Z' (Exigência da API).
+    Retorna APENAS A DATA (YYYY-MM-DD) para evitar erros de validação de hora/fuso.
     """
-    # 1. Define Fuso Horário Local e UTC
+    # 1. Define Fuso Horário Local (Brasília)
     try:
         tz_local = pytz.timezone(config.TIMEZONE)
     except:
         tz_local = pytz.timezone('America/Sao_Paulo')
-    
-    tz_utc = pytz.utc
     
     # Usa data atual no fuso local
     now = datetime.now(tz_local)
@@ -48,17 +46,9 @@ def calculate_deadline():
             
         days_added += 1
             
-    # 4. Define horário final do dia local (23:59:59)
-    # Remove timezone info para poder localizar corretamente depois
-    naive_deadline = current_date.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=None)
-    deadline_local = tz_local.localize(naive_deadline)
-    
-    # 5. Converte para UTC
-    deadline_utc = deadline_local.astimezone(tz_utc)
-    
-    # 6. Formatação ESTRITA com 'Z' (Correção do Bug +00:00)
-    # O Python isoformat() gera +00:00, mas a API quer Z.
-    return deadline_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+    # 4. Formatação Simplificada (YYYY-MM-DD)
+    # Removemos hora/minuto/fuso para evitar o erro "invalid_date"
+    return current_date.strftime('%Y-%m-%d')
 
 def get_signers_emails(names_text, emails_db_path='email.json'):
     try:
@@ -95,7 +85,7 @@ def get_signers_emails(names_text, emails_db_path='email.json'):
 
 def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     """
-    Envia para API Authentique V2 (Autentique).
+    Envia para API Authentique V2.
     """
     url = "https://api.autentique.com.br/v2/graphql"
     
@@ -105,8 +95,8 @@ def send_to_authentique(file_obj, signers, doc_name="ATA de Reunião"):
     token = st.secrets["AUTHENTIQUE_TOKEN"]
     deadline = calculate_deadline()
     
-    # Debug visual para garantir que o formato está correto (agora com Z)
-    st.toast(f"📅 Data limite gerada: {deadline}")
+    # Debug visual
+    st.toast(f"📅 Data limite simplificada: {deadline}")
     print(f"DEBUG DATA: {deadline}")
     
     # Query GraphQL
