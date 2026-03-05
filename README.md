@@ -6,9 +6,12 @@ Este repositório agora está organizado como um **sistema integrado modular** p
 
 ```
 app.py
+pages/
+	01_ATAs.py
+	02_Contratos.py
 modules/
 	atas/
-		app.py
+		page_atas.py
 		config.py
 		ia_utils.py
 		authentique_utils.py
@@ -20,18 +23,20 @@ modules/
 		examples/
 			*.docx
 	contratos/
-		app.py
+		page_contratos.py
 		config.py
 		document_utils.py
 		authentique_utils.py
 		data/
-			modelo_contrato.docx
+			modelo_contrato_ps.docx
+	ui/
+		sidebar.py
 ```
 
 ## Módulos atuais
 
 - `ATAs`: automação completa de geração, revisão, assinatura e notificação de atas.
-- `Contratos`: preenchimento de contrato com template DOCX e envio para assinatura via Authentique.
+- `Contratos`: preenchimento de contrato com template DOCX, conversão para PDF e envio para assinatura via Authentique.
 
 ## Como executar
 
