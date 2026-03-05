@@ -1,5 +1,8 @@
 import importlib
+import sys
 
-import modules.atas.app as atas_app
-
-importlib.reload(atas_app)
+module_name = "modules.atas.page_atas"
+if module_name in sys.modules:
+	importlib.reload(sys.modules[module_name])
+else:
+	importlib.import_module(module_name)

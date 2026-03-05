@@ -11,6 +11,15 @@ from urllib3.util.retry import Retry
 from modules.contratos import config
 
 
+def _get_upload_mime_type(file_name):
+    lower_name = file_name.lower()
+    if lower_name.endswith(".pdf"):
+        return "application/pdf"
+    if lower_name.endswith(".docx"):
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return "application/octet-stream"
+
+
 def calculate_deadline():
     try:
         tz_local = pytz.timezone(config.TIMEZONE)
@@ -71,7 +80,7 @@ def send_to_authentique(file_bytes, file_name, signers, doc_name):
     files = {
         "operations": (None, operations, "application/json"),
         "map": (None, map_data, "application/json"),
-        "0": (file_name, file_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        "0": (file_name, file_bytes, _get_upload_mime_type(file_name)),
     }
 
     headers = {"Authorization": f"Bearer {token}"}
