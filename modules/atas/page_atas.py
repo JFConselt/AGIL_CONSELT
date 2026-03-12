@@ -1,5 +1,7 @@
+import base64
 import streamlit as st
 from docxtpl import DocxTemplate
+from docx import Document
 import io
 import json
 import uuid
@@ -10,6 +12,12 @@ from modules.atas import email_utils
 from modules.atas import history_utils
 from modules.atas import config
 from modules.ui.sidebar import render_sidebar
+
+try:
+    import mammoth
+    HAS_MAMMOTH = True
+except:
+    HAS_MAMMOTH = False
 
 # Tenta importar conversor de PDF (Funciona melhor em Windows/Mac locais)
 try:
@@ -35,6 +43,96 @@ st.markdown("""
 
 st.title("📄 AGIL | ATAs")
 
+
+def render_pdf_preview(pdf_bytes, height=720):
+    encoded_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+    st.markdown(
+        f'<iframe src="data:application/pdf;base64,{encoded_pdf}" width="100%" height="{height}" type="application/pdf"></iframe>',
+        unsafe_allow_html=True,
+    )
+
+
+def extract_docx_preview_blocks(docx_bytes):
+    document = Document(io.BytesIO(docx_bytes))
+    blocks = []
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if text:
+            blocks.append(("paragraph", text))
+
+    for table in document.tables:
+        table_rows = []
+        for row in table.rows:
+            values = [cell.text.strip() for cell in row.cells]
+            if any(values):
+                table_rows.append(values)
+        if table_rows:
+            blocks.append(("table", table_rows))
+
+    return blocks
+
+
+def render_docx_preview(docx_bytes):
+    if HAS_MAMMOTH:
+        try:
+            result = mammoth.convert_to_html(io.BytesIO(docx_bytes))
+            html = result.value.strip()
+            if html:
+                st.markdown(
+                    f"""
+                    <div style="background: white; color: #111827; padding: 2rem; border-radius: 0.75rem; border: 1px solid #d1d5db; max-height: 720px; overflow: auto;">
+                        {html}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if result.messages:
+                    st.caption("A visualização foi gerada com pequenas limitações de formatação do DOCX.")
+                return
+        except Exception:
+            pass
+
+    blocks = extract_docx_preview_blocks(docx_bytes)
+    if not blocks:
+        st.warning("Não foi possível extrair conteúdo legível do documento para visualização.")
+        return
+
+    st.caption("Visualização simplificada do conteúdo do .docx.")
+    for block_type, content in blocks:
+        if block_type == "paragraph":
+            st.write(content)
+        elif block_type == "table":
+            st.table(content)
+
+
+def merge_corrected_pautas(current_pautas, corrected_pautas):
+    corrected_by_id = {
+        pauta.get("id"): pauta.get("texto", "")
+        for pauta in corrected_pautas
+        if pauta.get("id")
+    }
+    merged = []
+    for pauta in current_pautas:
+        updated = dict(pauta)
+        if pauta.get("id") in corrected_by_id:
+            updated["texto"] = corrected_by_id[pauta["id"]]
+        merged.append(updated)
+    return merged
+
+
+def set_final_document_state(file_bytes, filename, file_type, docx_bytes=None, pdf_bytes=None):
+    deadline_iso = authentique_utils.calculate_deadline()
+    deadline_display = deadline_iso[:10].split("-")
+    deadline_display = f"{deadline_display[2]}/{deadline_display[1]}/{deadline_display[0]}"
+
+    st.session_state['final_file_blob'] = file_bytes
+    st.session_state['final_filename'] = filename
+    st.session_state['file_type'] = file_type
+    st.session_state['final_docx_blob'] = docx_bytes
+    st.session_state['final_pdf_blob'] = pdf_bytes
+    st.session_state['final_deadline'] = deadline_display
+
 # --- Inicialização de Estado ---
 if 'data_store' not in st.session_state:
     st.session_state.data_store = {
@@ -43,7 +141,9 @@ if 'data_store' not in st.session_state:
         "attendance_raw": "",
         "final_file_blob": None,
         "final_filename": "ATA_Reuniao.docx", # Default
-        "final_deadline": ""
+        "final_deadline": "",
+        "final_pdf_blob": None,
+        "final_docx_blob": None,
     }
 
 if 'pautas_dinamicas' not in st.session_state:
@@ -234,6 +334,7 @@ with tab4:
         av_txt = c1.text_area("Texto dos Avisos", value=st.session_state.data_store.get("avisos_text", ""))
         if c2.button("Padronizar (IA)"):
             av_txt = ia_utils.refine_notices(av_txt)
+            st.session_state.data_store["avisos_text"] = av_txt
             st.rerun()
         st.session_state.data_store["avisos_text"] = av_txt
     else:
@@ -277,7 +378,7 @@ with tab5:
             "avisos": st.session_state.data_store.get("avisos_text", "")
         }
         with st.spinner("Auditando..."):
-            audit = ia_utils.audit_meeting_summary(json.dumps(context, default=str))
+            audit = ia_utils.audit_meeting_summary(context)
             st.info(audit)
             
             # Botão de Aplicar Correções (Só aparece após auditar)
@@ -297,14 +398,19 @@ with tab5:
                 new_data = ia_utils.apply_auto_corrections(context)
                 
                 if "Erro" not in new_data:
-                    # Atualiza Session State
-                    if "pautas" in new_data: st.session_state.pautas_dinamicas = new_data["pautas"]
-                    if "transparencias" in new_data: st.session_state.data_store["transparencias_data"] = new_data["transparencias"]
-                    if "avisos" in new_data: st.session_state.data_store["avisos_text"] = new_data["avisos"]
+                    if "pautas" in new_data:
+                        st.session_state.pautas_dinamicas = merge_corrected_pautas(
+                            st.session_state.pautas_dinamicas,
+                            new_data["pautas"],
+                        )
+                    if "transparencias" in new_data:
+                        st.session_state.data_store["transparencias_data"] = new_data["transparencias"]
+                    if "avisos" in new_data:
+                        st.session_state.data_store["avisos_text"] = new_data["avisos"]
                     st.success("Textos atualizados com sucesso! Verifique nas abas anteriores.")
                     st.rerun()
                 else:
-                    st.error("Falha ao aplicar correções.")
+                    st.error(f"Falha ao aplicar correções: {new_data['Erro']}")
 
     st.markdown("---")
 
@@ -313,6 +419,8 @@ with tab5:
     col_gen, col_down = st.columns(2)
     
     filename_base = generate_filename() # Ex: ATA RG - 12/05.docx
+    active_template_path = config.get_active_ata_template_path()
+    st.caption(f"Template ativo: {active_template_path}")
     
     if col_gen.button("🚀 Gerar Documento", type="primary"):
         # Contexto Jinja
@@ -337,25 +445,35 @@ with tab5:
                 ctx[f"tr_{v}_planejadas"] = raw_t_norm[k]["Planejado"]
 
         try:
-            doc = DocxTemplate(config.MODEL_DOCX_PATH)
+            doc = DocxTemplate(active_template_path)
             doc.render(ctx)
             bio = io.BytesIO()
             doc.save(bio)
-            
-            st.session_state['final_file_blob'] = bio.getvalue()
-            st.session_state['final_filename'] = filename_base
-            st.session_state['file_type'] = "docx"
+
+            docx_bytes = bio.getvalue()
+            set_final_document_state(
+                file_bytes=docx_bytes,
+                filename=filename_base,
+                file_type="docx",
+                docx_bytes=docx_bytes,
+                pdf_bytes=None,
+            )
             st.success(f"Gerado: {filename_base}")
             
             # Tentativa de converter para PDF (Só funciona se tiver Office/LibreOffice no servidor)
             if HAS_PDF_CONVERTER:
                 try:
-                    with open(config.TEMP_DOCX_PATH, "wb") as f: f.write(bio.getvalue())
+                    with open(config.TEMP_DOCX_PATH, "wb") as f: f.write(docx_bytes)
                     convert(config.TEMP_DOCX_PATH, config.TEMP_PDF_PATH)
                     with open(config.TEMP_PDF_PATH, "rb") as f:
-                        st.session_state['final_file_blob'] = f.read()
-                        st.session_state['final_filename'] = filename_base.replace(".docx", ".pdf")
-                        st.session_state['file_type'] = "pdf"
+                        pdf_bytes = f.read()
+                        set_final_document_state(
+                            file_bytes=pdf_bytes,
+                            filename=filename_base.replace(".docx", ".pdf"),
+                            file_type="pdf",
+                            docx_bytes=docx_bytes,
+                            pdf_bytes=pdf_bytes,
+                        )
                     st.info("Convertido para PDF automaticamente.")
                 except:
                     st.warning("Não foi possível converter para PDF automaticamente (ambiente sem Office). Mantendo .docx.")
@@ -372,6 +490,28 @@ with tab5:
             st.session_state['final_file_blob'], 
             st.session_state['final_filename']
         )
+
+    preview_pdf = st.session_state.get('final_pdf_blob')
+    preview_docx = st.session_state.get('final_docx_blob')
+    if preview_pdf or preview_docx:
+        st.markdown("#### Visualização do documento")
+        preview_mode_options = ["Documento .docx"]
+        if preview_pdf:
+            preview_mode_options.insert(0, "PDF")
+
+        preview_mode = st.radio(
+            "Formato de visualização",
+            options=preview_mode_options,
+            horizontal=True,
+            key="ata_preview_mode",
+        )
+
+        if preview_mode == "PDF" and preview_pdf:
+            render_pdf_preview(preview_pdf)
+        elif preview_docx:
+            render_docx_preview(preview_docx)
+            if not preview_pdf:
+                st.info("A hospedagem atual não converte DOCX para PDF. A revisão está usando a visualização direta do documento .docx.")
     
     st.markdown("---")
     st.markdown("**Validação Humana:**")
@@ -380,9 +520,14 @@ with tab5:
     if opt == "Fazer upload de versão corrigida (PDF)":
         up = st.file_uploader("Upload PDF Final", type="pdf")
         if up:
-            st.session_state['final_file_blob'] = up.getvalue()
-            st.session_state['final_filename'] = up.name
-            st.session_state['file_type'] = "pdf"
+            pdf_bytes = up.getvalue()
+            set_final_document_state(
+                file_bytes=pdf_bytes,
+                filename=up.name,
+                file_type="pdf",
+                docx_bytes=st.session_state.get('final_docx_blob'),
+                pdf_bytes=pdf_bytes,
+            )
             st.success("Arquivo manual carregado.")
 
 # --- TAB 6: ASSINATURA ---
@@ -402,7 +547,7 @@ with tab6:
         st.stop()
 
     # Info do Documento
-    deadline_str = st.session_state.data_store.get("final_deadline", "Calculando...")
+    deadline_str = st.session_state.get("final_deadline", "Calculando...")
     filename = st.session_state.get('final_filename', 'ATA.docx')
     
     st.info(f"📂 Arquivo: **{filename}**\n\n📅 Prazo: **{deadline_str}**")
@@ -445,7 +590,7 @@ with tab6:
 with tab7:
     st.header("Notificação por Email")
     
-    prazo_txt = st.session_state.data_store.get("final_deadline", "DD/MM/AAAA")
+    prazo_txt = st.session_state.get("final_deadline", "DD/MM/AAAA")
     
     default_body = f"""Bom dia, boa tarde e boa noite CONSELT!
 [Mensagem personalizada]. Qualquer problema, chama JF! 🔥🔥
@@ -466,14 +611,15 @@ A assinatura é obrigatória e tem como prazo até o dia {prazo_txt}."""
         gif_file = st.file_uploader("Mídia Visual", type=["png", "jpg", "gif"])
         
         if st.form_submit_button("📧 Disparar Emails"):
-            if not st.session_state.data_store.get('final_file_blob'):
+            final_file_blob = st.session_state.get('final_file_blob')
+            if not final_file_blob:
                 st.error("Nenhum documento de ATA disponível.")
             else:
                 try:
                     # Passando os valores CORRETOS dos inputs, não hardcoded
                     recipients = [e.strip() for e in email_to.split(",") if e.strip()]
                     
-                    file_mem = io.BytesIO(st.session_state['final_file_blob'])
+                    file_mem = io.BytesIO(final_file_blob)
                     
                     email_utils.send_notification_email(
                         file_obj=file_mem,

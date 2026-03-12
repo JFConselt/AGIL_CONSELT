@@ -5,16 +5,16 @@ from modules.atas import config
 
 # Cache para não ler disco toda hora
 @st.cache_data(show_spinner=False)
-def load_reference_style(folder_path=config.EXAMPLES_DIR):
+def load_reference_style():
     full_context = ""
-    if not os.path.exists(folder_path): return "", 0
-    
-    files = [f for f in os.listdir(folder_path) if f.endswith(".docx") and not f.startswith("~$")]
-    # Pega só os 3 últimos para economizar tokens
-    for f in sorted(files, reverse=True)[:3]:
+    example_paths = config.get_active_example_paths(max_items=3)
+    if not example_paths:
+        return "", 0
+
+    for path in example_paths:
         try:
-            doc = Document(os.path.join(folder_path, f))
+            doc = Document(path)
             txt = " ".join([p.text for p in doc.paragraphs if p.text.strip()])
-            full_context += f"--- {f} ---\n{txt}\n"
+            full_context += f"--- {os.path.basename(path)} ---\n{txt}\n"
         except: pass
-    return full_context, len(files)
+    return full_context, len(example_paths)

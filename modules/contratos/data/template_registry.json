@@ -1,0 +1,19 @@
+{
+    "active_template": "prestacao_servicos",
+    "templates": [
+        {
+            "id": "prestacao_servicos",
+            "label": "Contrato de Prestacao de Servicos",
+            "template_path": "data\\modelo_contrato_ps.docx",
+            "form_type": "prestacao_servicos",
+            "managed": false
+        },
+        {
+            "id": "parcerias",
+            "label": "Contrato de Parcerias",
+            "template_path": "data\\modelo_contrato_parcerias.docx",
+            "form_type": "parcerias",
+            "managed": false
+        }
+    ]
+}

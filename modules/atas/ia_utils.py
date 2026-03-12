@@ -60,7 +60,7 @@ def process_transparencies(text_content, user_notes=""):
             model='gemini-2.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
-                system_instruction=config.PROMPT_TRANSPARENCIAS_SYSTEM,
+                system_instruction=config.get_prompt_transparencias_system(),
                 response_mime_type='application/json',
                 response_schema=TransparenciasSchema
             )
@@ -104,7 +104,7 @@ def process_pauta(pdf_text, user_notes, titulo_pauta="", previous_context=""):
             model='gemini-2.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
-                system_instruction=config.PROMPT_PAUTAS_SYSTEM,
+                system_instruction=config.get_prompt_pautas_system(),
                 temperature=0.3 # Mais determinístico para textos formais
             )
         )
@@ -115,6 +115,11 @@ def process_pauta(pdf_text, user_notes, titulo_pauta="", previous_context=""):
 def refine_notices(text_content):
     """Padroniza e revisa os avisos gerais."""
     client = get_client()
+    if not client:
+        return text_content
+    if not text_content or not str(text_content).strip():
+        return ""
+
     prompt = f"""
     Atue como um Secretário Sênior. Revise e padronize os avisos abaixo.
     Mantenha tom formal e corporativo.
@@ -128,15 +133,45 @@ def refine_notices(text_content):
         return response.text.strip()
     except: return text_content
 
-def audit_meeting_summary(context_json_str):
+def _build_audit_context(context_dict):
+    lines = []
+
+    for pauta in context_dict.get("pautas", []):
+        titulo = pauta.get("titulo") or "Pauta sem título"
+        texto = (pauta.get("texto") or "").strip()
+        excerpt = texto[:500] + ("..." if len(texto) > 500 else "")
+        lines.append(f"PAUTA: {titulo}\n{excerpt}")
+
+    transparencias = context_dict.get("transparencias", {})
+    for diretoria, conteudo in transparencias.items():
+        realizado = (conteudo.get("Realizado") or "")[:250]
+        planejado = (conteudo.get("Planejado") or "")[:250]
+        lines.append(f"TRANSPARENCIA {diretoria}: Realizado={realizado} | Planejado={planejado}")
+
+    avisos = (context_dict.get("avisos") or "").strip()
+    if avisos:
+        lines.append(f"AVISOS: {avisos[:500]}{'...' if len(avisos) > 500 else ''}")
+
+    return "\n\n".join(lines)
+
+
+def audit_meeting_summary(context_data):
     """Gera um resumo curto das correções necessárias."""
     client = get_client()
+    if not client:
+        return "Auditoria indisponível."
+
+    if isinstance(context_data, str):
+        context_text = context_data
+    else:
+        context_text = _build_audit_context(context_data)
+
     prompt = f"""
     Atue como Auditor. Analise os dados desta Ata.
     Seja BREVE e DIRETO. Liste apenas o que precisa de atenção em tópicos curtos (máx 5 linhas).
     Se estiver tudo ok, diga "Nenhuma inconsistência grave encontrada."
     
-    DADOS: {context_json_str[:20000]}
+    DADOS: {context_text}
     """
     try:
         response = client.models.generate_content(
@@ -146,33 +181,100 @@ def audit_meeting_summary(context_json_str):
         return response.text
     except: return "Auditoria indisponível."
 
+
+def _generate_json_response(client, prompt):
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type='application/json'
+        )
+    )
+    return json.loads(response.text)
+
+
+def _normalize_pautas(client, pautas):
+    payload = [
+        {
+            "id": pauta.get("id", ""),
+            "titulo": pauta.get("titulo", ""),
+            "texto": pauta.get("texto", ""),
+        }
+        for pauta in pautas
+        if pauta.get("texto")
+    ]
+    if not payload:
+        return []
+
+    batches = []
+    current_batch = []
+    current_size = 0
+    max_batch_size = 12000
+
+    for item in payload:
+        item_size = len(json.dumps(item, ensure_ascii=False))
+        if current_batch and current_size + item_size > max_batch_size:
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+        current_batch.append(item)
+        current_size += item_size
+
+    if current_batch:
+        batches.append(current_batch)
+
+    corrected_payload = []
+    for batch in batches:
+        prompt = f"""
+        Você é um Editor de Texto Automático.
+        Receba a lista JSON de pautas abaixo e reescreva apenas o campo 'texto' de cada item.
+        Preserve 'id' e 'titulo' exatamente como vieram.
+        Corrija gramática, clareza e formalidade, mantendo o tom de ata.
+        Retorne apenas um JSON válido no mesmo formato de lista.
+
+        JSON ENTRADA:
+        {json.dumps(batch, ensure_ascii=False)}
+        """
+        corrected = _generate_json_response(client, prompt)
+        if not isinstance(corrected, list):
+            raise ValueError("A IA retornou um formato inválido para pautas.")
+        corrected_payload.extend(corrected)
+
+    return corrected_payload
+
+
+def _normalize_transparencias(client, transparencias):
+    if not transparencias:
+        return {}
+
+    prompt = f"""
+    Você é um Editor de Texto Automático.
+    Receba o JSON abaixo de transparências e reescreva apenas os campos 'Realizado' e 'Planejado'.
+    Preserve as diretorias e a estrutura do JSON.
+    Corrija gramática, clareza e formalidade, mantendo o tom de ata.
+    Retorne apenas um JSON válido.
+
+    JSON ENTRADA:
+    {json.dumps(transparencias, ensure_ascii=False)}
+    """
+    corrected = _generate_json_response(client, prompt)
+    if not isinstance(corrected, dict):
+        raise ValueError("A IA retornou um formato inválido para transparências.")
+    return corrected
+
 def apply_auto_corrections(context_dict):
     """
     Reescreve os textos do JSON corrigindo português e formalidade.
     """
     client = get_client()
-    
-    prompt = f"""
-    Você é um Editor de Texto Automático.
-    Analise o JSON abaixo contendo 'pautas', 'transparencias' e 'avisos'.
-    Reescreva APENAS os valores de texto (chaves 'texto', 'Realizado', 'Planejado', 'avisos') corrigindo:
-    1. Erros gramaticais.
-    2. Formalidade (tom corporativo).
-    3. Clareza.
-    
-    Mantenha a ESTRUTURA do JSON intacta. Não remova chaves.
-    
-    JSON ENTRADA:
-    {json.dumps(context_dict, default=str, ensure_ascii=False)[:30000]}
-    """
+    if not client:
+        return {"Erro": "API Key não configurada."}
+
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type='application/json'
-            )
-        )
-        return json.loads(response.text)
+        return {
+            "pautas": _normalize_pautas(client, context_dict.get("pautas", [])),
+            "transparencias": _normalize_transparencias(client, context_dict.get("transparencias", {})),
+            "avisos": refine_notices(context_dict.get("avisos", "")),
+        }
     except Exception as e:
         return {"Erro": str(e)}

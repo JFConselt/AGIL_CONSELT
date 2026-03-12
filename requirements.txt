@@ -2,6 +2,7 @@ streamlit
 google-genai
 docxtpl
 docx2pdf
+mammoth
 pdfplumber
 requests
 pytz

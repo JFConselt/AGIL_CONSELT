@@ -23,7 +23,7 @@ st.markdown("---")
 st.subheader("1) Modelo do documento")
 available_models = {
     model_id: model_data
-    for model_id, model_data in config.CONTRACT_MODELS.items()
+    for model_id, model_data in config.get_contract_models().items()
     if os.path.exists(model_data["template_path"])
 }
 
@@ -31,9 +31,12 @@ if not available_models:
     st.error("Nenhum modelo de contrato encontrado em modules/contratos/data.")
     st.stop()
 
+active_model_id = config.get_active_contract_model_id()
+
 selected_model_id = st.selectbox(
     "Selecione o modelo de contrato",
     options=list(available_models.keys()),
+    index=max(0, list(available_models.keys()).index(active_model_id)) if active_model_id in available_models else 0,
     format_func=lambda model_id: available_models[model_id]["label"],
 )
 selected_model = available_models[selected_model_id]

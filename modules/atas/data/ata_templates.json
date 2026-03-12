@@ -1,0 +1,11 @@
+{
+    "active_template": "modelo_ata_padrao",
+    "templates": [
+        {
+            "id": "modelo_ata_padrao",
+            "label": "Modelo de ATA padrão",
+            "path": "data\\modelo_ata.docx",
+            "managed": false
+        }
+    ]
+}

@@ -27,6 +27,7 @@ def render_sidebar(active_page: str):
         ("inicio", "🏠 Início", "app.py"),
         ("atas", "📄 ATAs", "pages/01_ATAs.py"),
         ("contratos", "📝 Contratos", "pages/02_Contratos.py"),
+        ("gerenciamento", "🛠️ Gerenciamento", "pages/03_Gerenciamento.py"),
     ]
 
     for key, label, target in items:

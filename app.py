@@ -24,6 +24,11 @@ module_options = {
         "description": "Preenchimento automático de contratos e envio para assinatura via Authentique.",
         "page": "pages/02_Contratos.py",
         "status": "Disponível",
+    },
+    "Gerenciamento": {
+        "description": "Central administrativa para gerenciar prompts, membros, templates e acervos do sistema.",
+        "page": "pages/03_Gerenciamento.py",
+        "status": "Disponível",
     }
 }
 

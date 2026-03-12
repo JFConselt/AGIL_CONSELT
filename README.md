@@ -37,6 +37,7 @@ modules/
 
 - `ATAs`: automação completa de geração, revisão, assinatura e notificação de atas.
 - `Contratos`: preenchimento de contrato com template DOCX, conversão para PDF e envio para assinatura via Authentique.
+- `Gerenciamento`: central administrativa para gerenciar prompts, membros, templates e acervo de conhecimento.
 
 ## Como executar
 
@@ -44,7 +45,7 @@ modules/
 	 - `pip install -r requirements.txt`
 2. Execute a interface inicial:
 	 - `streamlit run app.py`
-3. Na interface inicial, escolha o módulo `ATAs` ou `Contratos`.
+3. Na interface inicial, escolha o módulo `ATAs`, `Contratos` ou `Gerenciamento`.
 
 ## Próximos passos
 
