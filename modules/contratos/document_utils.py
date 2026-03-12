@@ -5,6 +5,7 @@ import tempfile
 import zipfile
 import subprocess
 import platform
+import time
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
 
@@ -352,6 +353,8 @@ def convert_docx_bytes_to_pdf_bytes(docx_bytes):
     """
     Converte bytes de DOCX para PDF usando LibreOffice em modo headless.
     """
+    import streamlit as st
+    
     with tempfile.TemporaryDirectory() as temp_dir:
         input_docx_path = os.path.join(temp_dir, "contrato_temp.docx")
         output_pdf_path = os.path.join(temp_dir, "contrato_temp.pdf")
@@ -394,26 +397,61 @@ def convert_docx_bytes_to_pdf_bytes(docx_bytes):
             command = [
                 libreoffice_cmd,
                 "--headless",
+                "--safe-mode",
                 "--convert-to", "pdf",
                 "--outdir", temp_dir,
                 input_docx_path
             ]
             
-            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            st.write(f"🔄 Convertendo documento para PDF... (pode levar alguns segundos)")
+            
+            result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+            
+            # Aguardar um pouco para garantir que o arquivo foi escrito
+            time.sleep(2)
+            
+            # Log detalhado
+            debug_info = {
+                "returncode": result.returncode,
+                "stdout": result.stdout[:500] if result.stdout else "",
+                "stderr": result.stderr[:500] if result.stderr else "",
+                "files_in_temp": os.listdir(temp_dir),
+                "pdf_path_exists": os.path.exists(output_pdf_path)
+            }
+            st.write(f"📋 Debug: {debug_info}")
             
             if result.returncode != 0:
-                raise Exception(f"Falha ao converter DOCX para PDF: {result.stderr}")
+                error_msg = f"LibreOffice retornou erro: {result.stderr or result.stdout or 'Erro desconhecido'}"
+                st.error(error_msg)
+                raise Exception(error_msg)
             
+            # Verificar se o PDF foi criado
             if not os.path.exists(output_pdf_path):
-                raise Exception("Arquivo PDF não foi gerado pela conversão.")
+                # Listar arquivos criados para debug
+                files_created = os.listdir(temp_dir)
+                st.warning(f"⚠️ Arquivos gerados: {files_created}")
+                
+                # Procurar por PDFs com outros nomes
+                pdf_files = [f for f in files_created if f.endswith(".pdf")]
+                if pdf_files:
+                    output_pdf_path = os.path.join(temp_dir, pdf_files[0])
+                    st.write(f"✅ Usando arquivo PDF alternativo: {pdf_files[0]}")
+                else:
+                    raise Exception(
+                        f"Arquivo PDF não foi gerado. Arquivos criados: {files_created}"
+                    )
 
             # Ler PDF convertido
             with open(output_pdf_path, "rb") as pdf_file:
-                return pdf_file.read()
+                pdf_bytes = pdf_file.read()
+                st.success(f"✅ PDF gerado com sucesso! Tamanho: {len(pdf_bytes)} bytes")
+                return pdf_bytes
                 
         except subprocess.TimeoutExpired:
+            st.error("⏱️ Conversão para PDF expirou (timeout após 60 segundos).")
             raise Exception("Conversão para PDF expirou (timeout).")
         except FileNotFoundError:
+            st.error("❌ LibreOffice não encontrado no sistema.")
             raise Exception(
                 "LibreOffice não encontrado no sistema. "
                 "Por favor, instale LibreOffice: https://www.libreoffice.org/download/"
