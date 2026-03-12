@@ -5,9 +5,13 @@ from decimal import Decimal, ROUND_HALF_UP
 import streamlit as st
 
 from modules.contratos import authentique_utils
+from modules.contratos import admin_utils
 from modules.contratos import config
 from modules.contratos import document_utils
 from modules.ui.sidebar import render_sidebar
+
+# Garantir que os arquivos de tempo de execução estejam inicializados
+admin_utils.ensure_runtime_files()
 
 # Configuracao da pagina e navegacao compartilhada
 st.set_page_config(page_title="AGIL | Contratos", page_icon="📝", layout="wide")

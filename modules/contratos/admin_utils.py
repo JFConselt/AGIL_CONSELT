@@ -52,10 +52,14 @@ def ensure_runtime_files() -> None:
     registry = _read_json(config.TEMPLATE_REGISTRY_PATH, {})
     templates = registry.get("templates", [])
     active_template = registry.get("active_template")
+    
+    # Rastrear paths resolvidos e IDs existentes para evitar duplicatas
     known_paths = {config._resolve_registry_path(entry.get("template_path")) for entry in templates}
+    known_ids = {entry.get("id") for entry in templates}
 
+    # Adicionar modelos padrão se não estiverem presentes
     for model_id, model_data in config.DEFAULT_CONTRACT_MODELS.items():
-        if model_data["template_path"] in known_paths:
+        if model_id in known_ids or model_data["template_path"] in known_paths:
             continue
         templates.append(
             {
@@ -66,22 +70,31 @@ def ensure_runtime_files() -> None:
                 "managed": False,
             }
         )
+        known_ids.add(model_id)
 
+    # Adicionar templates gerenciados da pasta
     for file_name in sorted(os.listdir(config.MANAGED_TEMPLATES_DIR)):
         if not file_name.lower().endswith(".docx"):
             continue
         full_path = os.path.join(config.MANAGED_TEMPLATES_DIR, file_name)
         if full_path in known_paths:
             continue
+        
+        template_id = _slugify(os.path.splitext(file_name)[0])
+        # Evitar duplicatas de ID
+        if template_id in known_ids:
+            continue
+            
         templates.append(
             {
-                "id": _slugify(os.path.splitext(file_name)[0]),
+                "id": template_id,
                 "label": os.path.splitext(file_name)[0],
                 "template_path": _to_registry_path(full_path),
                 "form_type": "prestacao_servicos",
                 "managed": True,
             }
         )
+        known_ids.add(template_id)
 
     if templates and not active_template:
         active_template = templates[0]["id"]
