@@ -3,15 +3,12 @@ import re
 import os
 import tempfile
 import zipfile
+import subprocess
+import platform
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
 
 from docxtpl import DocxTemplate
-
-try:
-    from docx2pdf import convert as convert_docx_to_pdf
-except Exception:
-    convert_docx_to_pdf = None
 
 
 TAG_ALIASES = {
@@ -352,25 +349,75 @@ def render_contract(template_bytes, context):
 
 
 def convert_docx_bytes_to_pdf_bytes(docx_bytes):
-    if convert_docx_to_pdf is None:
-        raise Exception(
-            "Conversao para PDF indisponivel. Instale 'docx2pdf' e garanta o Microsoft Word no ambiente."
-        )
-
+    """
+    Converte bytes de DOCX para PDF usando LibreOffice em modo headless.
+    """
     with tempfile.TemporaryDirectory() as temp_dir:
         input_docx_path = os.path.join(temp_dir, "contrato_temp.docx")
         output_pdf_path = os.path.join(temp_dir, "contrato_temp.pdf")
 
+        # Salvar DOCX temporário
         with open(input_docx_path, "wb") as docx_file:
             docx_file.write(docx_bytes)
 
-        convert_docx_to_pdf(input_docx_path, output_pdf_path)
+        # Determinar comando LibreOffice baseado no SO
+        system = platform.system()
+        
+        if system == "Windows":
+            # Tentar encontrar LibreOffice no Windows
+            libreoffice_paths = [
+                r"C:\Program Files\LibreOffice\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+            ]
+            libreoffice_cmd = None
+            for path in libreoffice_paths:
+                if os.path.exists(path):
+                    libreoffice_cmd = path
+                    break
+            
+            if not libreoffice_cmd:
+                # Tentar usar 'soffice' do PATH
+                try:
+                    subprocess.run(["soffice", "--version"], capture_output=True, check=True, timeout=5)
+                    libreoffice_cmd = "soffice"
+                except:
+                    raise Exception(
+                        "LibreOffice não encontrado. Por favor, instale LibreOffice em: "
+                        "https://www.libreoffice.org/download/ ou adicione ao PATH."
+                    )
+        else:
+            # Para Linux/Mac, assumir que 'soffice' está no PATH
+            libreoffice_cmd = "soffice"
 
-        if not os.path.exists(output_pdf_path):
-            raise Exception("Falha ao converter o contrato para PDF.")
+        try:
+            # Converter DOCX para PDF usando LibreOffice
+            command = [
+                libreoffice_cmd,
+                "--headless",
+                "--convert-to", "pdf",
+                "--outdir", temp_dir,
+                input_docx_path
+            ]
+            
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                raise Exception(f"Falha ao converter DOCX para PDF: {result.stderr}")
+            
+            if not os.path.exists(output_pdf_path):
+                raise Exception("Arquivo PDF não foi gerado pela conversão.")
 
-        with open(output_pdf_path, "rb") as pdf_file:
-            return pdf_file.read()
+            # Ler PDF convertido
+            with open(output_pdf_path, "rb") as pdf_file:
+                return pdf_file.read()
+                
+        except subprocess.TimeoutExpired:
+            raise Exception("Conversão para PDF expirou (timeout).")
+        except FileNotFoundError:
+            raise Exception(
+                "LibreOffice não encontrado no sistema. "
+                "Por favor, instale LibreOffice: https://www.libreoffice.org/download/"
+            )
 
 
 def parse_signers(lines_text):
