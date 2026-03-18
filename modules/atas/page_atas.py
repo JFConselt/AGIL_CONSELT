@@ -331,7 +331,7 @@ with tab4:
     chk_avisos = st.checkbox("Houve Avisos?", value=False)
     if chk_avisos:
         c1, c2 = st.columns([4, 1], vertical_alignment="center")
-        av_txt = c1.text_area("Texto dos Avisos", value=st.session_state.data_store.get("avisos_text", ""))
+        av_txt = c1.text_area("Texto dos Avisos", placeholder="Nos avisos finais...", value=st.session_state.data_store.get("avisos_text", ""))
         if c2.button("Padronizar (IA)"):
             av_txt = ia_utils.refine_notices(av_txt)
             st.session_state.data_store["avisos_text"] = av_txt
@@ -347,9 +347,9 @@ with tab4:
     chk_sparck = st.checkbox("Houve passagem do Sparckselt?", value=False)
     if chk_sparck:
         c1, c2 = st.columns(2)
-        ant = c1.text_input("Quem passou?")
-        nov = c2.text_input("Quem recebeu?")
-        mot = st.text_area("Motivo")
+        ant = c1.text_input("Quem passou?", placeholder="Ex: João Silva")
+        nov = c2.text_input("Quem recebeu?", placeholder="Ex: Maria Oliveira")
+        mot = st.text_area("Motivo (complete \"tendo em vista...\")", height=100)
         st.session_state.data_store["sparckselt"] = {"anterior": ant, "novo": nov, "motivo": mot}
     else:
         st.session_state.data_store["sparckselt"] = {}
@@ -360,7 +360,7 @@ with tab4:
     st.subheader("💌 Caixinha de Elogios")
     chk_elogios = st.checkbox("Houve leitura de Elogios?", value=False)
     if chk_elogios:
-        nome = st.text_input("Responsável pela leitura")
+        nome = st.text_input("Responsável pela leitura", placeholder="Joao Silva, Maria Oliveira...")
         st.session_state.data_store["elogios_leitor"] = nome
     else:
         st.session_state.data_store["elogios_leitor"] = ""
