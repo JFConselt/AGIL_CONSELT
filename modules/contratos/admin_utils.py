@@ -43,7 +43,8 @@ def _unique_file_path(folder: str, file_name: str) -> str:
 
 
 def _to_registry_path(path: str) -> str:
-    return os.path.relpath(path, config.MODULE_DIR)
+    # Salva no formato POSIX para manter compatibilidade entre Windows/Linux.
+    return os.path.relpath(path, config.MODULE_DIR).replace("\\", "/")
 
 
 def ensure_runtime_files() -> None:

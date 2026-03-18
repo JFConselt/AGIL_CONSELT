@@ -38,8 +38,10 @@ def _read_json(path, default):
 def _resolve_registry_path(path_value):
 	if not path_value:
 		return None
+	# Aceita paths com '/' ou '\\' independentemente do SO onde o registro foi gerado.
+	path_value = path_value.replace("\\", os.sep).replace("/", os.sep)
 	if os.path.isabs(path_value):
-		return path_value
+		return os.path.normpath(path_value)
 	return os.path.normpath(os.path.join(MODULE_DIR, path_value))
 
 
